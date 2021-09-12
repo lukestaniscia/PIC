@@ -6,7 +6,10 @@ import math
 from PIL import Image, ImageOps, ImageEnhance
 import time
 
-def keyy(x):
+def key0(x):
+	return x[0]
+
+def key1(x):
 	return (x[0]*maxBits + x[1])*1800 + int(x[2][2:],2)
 
 def sph2Cart(cord, precision = 3):
@@ -26,16 +29,22 @@ def reverseTranslate(cord, precision = 3):
 		newCord[i] = round(cord[i] + globalCentroid[i],precision)
 	return newCord
 
-def PICdecompress(proteinID, directory, epsilon = 0.25, returnStatistics = False, notificationFrequency = 500):
+def PICdecompress(path, epsilon = 0.25, returnStatistics = False, notificationFrequency = 500):
 
-	print("##########$$$$$$$$$$########## DECOMPRESSING " + proteinID + " ##########$$$$$$$$$$##########")
+	filename = ""
+	i = len(path) - 1
+	while path[i] != "/" and i > -1:
+		filename = path[i] + filename
+		i = i - 1
+
+	print("##########$$$$$$$$$$########## DECOMPRESSING " + filename + " ##########$$$$$$$$$$##########")
 
 	startTime = time.time() #start tracking decompression time
 	global bytesPerTenthDegree
 	bytesPerTenthDegree = epsilon
 
 	print("READING PARAMETER FILE")
-	parametersFile = open(directory + "_parameters.bin", "rb")
+	parametersFile = open(path + "_parameters.bin", "rb")
 	parameterBitsRead = ""
 	byte = parametersFile.read(1)
 	while byte:
@@ -82,7 +91,7 @@ def PICdecompress(proteinID, directory, epsilon = 0.25, returnStatistics = False
 	Images = []
 	for k in range(numImages):
 		print("Reading Image " + str(k + 1) + " of " + str(numImages))
-		imageObject = Image.open(directory + "_img_" + str(k+1) + ".png")
+		imageObject = Image.open(path + "_img_" + str(k+1) + ".png")
 		imageWidth = imageObject.width
 		imageHeight = imageObject.height
 		Images = Images + [[[0 for row in range(imageHeight)] for col in range(imageWidth)]]
@@ -146,11 +155,12 @@ def PICdecompress(proteinID, directory, epsilon = 0.25, returnStatistics = False
 			data[1] = math.trunc((data[1] - int(data[2][2:2 + math.ceil(math.log(maxBits,2))],2) - bytesPerTenthDegree*8) % maxBits) #adjust to primary intented position
 			data[2] = data[2][0] + "0" + data[2][2 + math.ceil(math.log(maxBits,2)):] #remove pointer
 		tracker = tracker + 1
-	queue.sort(key = keyy) #sort queue so data points are in a standardized order
+	queue.sort(key = key1) #sort queue so data points are in a standardized order
 
-	print("WRITING DECOMPRESSED FILE")
+	print("Reversing Transformations")
 	tracker = 0
-	decompressedFile = open(directory + '_decompressed_txt.txt','w+')
+	maxLengthCartCords = [0, 0, 0]
+	adjustedQueue = []
 	for data in queue:
 		if (tracker + 1) % notificationFrequency == 0:
 			print("Writing Data Point " + str(tracker + 1) + " of " + str(len(queue)))
@@ -158,7 +168,97 @@ def PICdecompress(proteinID, directory, epsilon = 0.25, returnStatistics = False
 		elev = round(int(data[2][2:],2)/10,1) #first two bits are encoding data
 		az = round(data[1]/(8*10*bytesPerTenthDegree),1)
 		cartCords = reverseTranslate(sph2Cart([az,elev,r]))
-		decompressedFile.write(str(round(cartCords[0],3)) + '\t' + str(round(cartCords[1],3)) + '\t' + str(round(cartCords[2],3)) + '\n')
+		for i in range(3):
+			cord = str(round(cartCords[i],3))
+			while len(cord.split(".")[1]) < 3:
+				cord = cord + "0"
+			cartCords[i] = cord
+			if len(cord) > maxLengthCartCords[i]:
+				maxLengthCartCords[i] = len(cord)
+		adjustedQueue = adjustedQueue + [cartCords]
+		tracker = tracker + 1
+	queue = adjustedQueue
+
+	print("WRITING DECOMPRESSED FILE")
+
+	print("Recombining Metadata and Coordinates")
+	metaFile = open(path + "_meta.txt", "r")
+	firstMetaLine = metaFile.readline()
+	if firstMetaLine[:5] == "data_":
+		filenameExtension = ".cif"
+	else:
+		filenameExtension = ".pdb" 
+	tracker = 0
+	i = 0
+	writeQueue = [firstMetaLine]
+	atomQueue = []
+	if filenameExtension == ".pdb":
+		for entry in metaFile:
+			if (tracker + 1) % notificationFrequency == 0:
+				print("Recombining Line #" + str(tracker + 1))
+			if entry[:4] != "ATOM" and entry[:6] != "HETATM":
+				writeQueue = writeQueue + [entry]
+			else:
+				writeQueue = writeQueue + [""]
+				cartCords = queue[i]
+				i = i + 1
+				for j in range(3):
+					while len(cartCords[j]) < 8:
+						cartCords[j] = " " + cartCords[j]
+				s = entry[:30]
+				for j in range(3):
+					s = s + cartCords[j]
+				s = s + entry[30:]
+				atomQueue = atomQueue + [[int(entry[6:11]), s]]
+			tracker = tracker + 1
+	else:
+		for entry in metaFile:
+			if (tracker + 1) % notificationFrequency == 0:
+				print("Recombining Line #" + str(tracker + 1))
+			if entry[:4] != "ATOM" and entry[:6] != "HETATM":
+				writeQueue = writeQueue + [entry]
+			else:
+				writeQueue = writeQueue + [""]
+				cartCords = queue[i]
+				i = i + 1
+				for j in range(3):
+					while len(cartCords[j]) < maxLengthCartCords[j]:
+						cartCords[j] = cartCords[j] + " "
+				tokens = entry.split(" ")
+				previousToken = ""
+				adjustedTokens = []
+				for token in tokens:
+					if token == "":
+						previousToken = previousToken + " "
+					else:
+						adjustedTokens = adjustedTokens + [previousToken]
+						previousToken = token
+				tokens = adjustedTokens[1:] + [previousToken]
+				s = ""
+				for j in range(len(tokens)):
+					if j != 10:
+						s = s + tokens[j] + " "
+					else:
+						for k in range(3):
+							s = s + cartCords[k] + " "
+						s = s + tokens[10] + " "
+				s = s[:len(s) - 1]
+				atomQueue = atomQueue + [[int(tokens[1]), s]]
+			tracker = tracker + 1
+	atomQueue.sort(key = key0)
+
+	print("Writing Decompressed File")
+	tracker = 0
+	i = 0
+	decompressedFile = open(path + '_decompressed' + filenameExtension,'w')
+	for entry in writeQueue:
+		if (tracker + 1) % notificationFrequency == 0:
+				print("Writing Line " + str(tracker + 1) + " of " + str(len(writeQueue)))
+		if entry == "":
+			decompressedFile.write(atomQueue[i][1])
+			i = i + 1
+		else:
+			decompressedFile.write(entry)
 		tracker = tracker + 1
 	decompressedFile.close()
 
@@ -167,4 +267,4 @@ def PICdecompress(proteinID, directory, epsilon = 0.25, returnStatistics = False
 		print("COMPUTING DECOMPRESSION TIME")
 		decompressionTime = endTime - startTime
 
-		return [decompressionTime]
+		return [numImages, decompressionTime]

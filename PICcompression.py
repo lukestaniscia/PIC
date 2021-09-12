@@ -2,7 +2,6 @@
 # By: Luke Staniscia
 
 #import used libraries/packages
-from Bio.PDB import *
 import math
 from PIL import Image, ImageOps, ImageEnhance
 import os
@@ -13,7 +12,7 @@ def cart2sph(cord, precision = 1):
 	y = cord[1]
 	z = cord[2]
 	XsqPlusYsq = x**2 + y**2
-	r = round(math.sqrt(XsqPlusYsq + z**2) * (10**precision))  #integer encoding spherical coordinates
+	r = round(math.sqrt(XsqPlusYsq + z**2) * (10**precision)) #integer encoding spherical coordinates
 	az = math.atan2(y,x) * (180/math.pi)   
 	if az < 0:
 		az = az + 360
@@ -71,13 +70,19 @@ def updateImageBoundries(cords):
 		if cords[1] > maxY:
 			maxY = cords[1]
 
-def keyy(x):
-	maxBits = round(3600*bytesPerTenthDegree*8)
-	return (x[0]*maxBits + x[1])*1800 + int(x[2][2:],2)
+def key0(x):
+	return x[0]
 
-def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistics = False, notificationFrequency = 500):
+def PICcompress(path, epsilon = 0.25, returnStatistics = False, constructViewableImage = False, notificationFrequency = 500):
 
-	print("##########$$$$$$$$$$########## COMPRESSING " + proteinID + " ##########$$$$$$$$$$##########")
+	filename = ""
+	i = len(path) - 1
+	while path[i] != "/" and i > -1:
+		filename = path[i] + filename
+		i = i - 1
+	filename = filename[:len(filename)-4]
+
+	print("##########$$$$$$$$$$########## COMPRESSING " + filename + " ##########$$$$$$$$$$##########")
 
 	startTime = time.time() #start tracking compression time
 	global bytesPerTenthDegree
@@ -85,26 +90,64 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 
 	print("DATA PRE-PROCESSING")
 
+	print("Retreving Data & Seperating Coordinates from Metadata")
+	orgFile = open(path, "r")
+	orgSize = os.path.getsize(path)
+	tracker = 0
+	Atoms = []
+	metaQueue = []
+	if path[len(path)-4:] == ".pdb":
+		for entry in orgFile:
+			if (tracker + 1) % notificationFrequency == 0:
+				print("Reading and Processing Line #" + str(tracker + 1))
+			if entry[:4] == "ATOM" or entry[:6] == "HETATM":
+				Atoms = Atoms + [[[float(entry[30:38]), float(entry[38:46]), float(entry[46:54])], entry[:30] + entry[54:]]]
+				metaQueue = metaQueue + [""]
+			else:
+				metaQueue = metaQueue + [entry]
+			tracker = tracker + 1
+	else:
+		for entry in orgFile:
+			if (tracker + 1) % notificationFrequency == 0:
+				print("Reading and Processing Line #" + str(tracker + 1))
+			if entry[:4] == "ATOM" or entry[:6] == "HETATM":
+				tokens = entry.split(" ")
+				previousToken = ""
+				adjustedTokens = []
+				for token in tokens:
+					if token == "":
+						previousToken = previousToken + " "
+					else:
+						adjustedTokens = adjustedTokens + [previousToken]
+						previousToken = token
+				tokens = adjustedTokens[1:] + [previousToken]
+				cartCords = []
+				for i in range(3):
+					cartCords = cartCords + [float(tokens[i + 10])]
+				s = ""
+				for i in range(len(tokens)):
+					if i < 10 or i > 12:
+						s = s + tokens[i] + " "
+				s = s[:len(s)-1]
+				Atoms = Atoms + [[cartCords, s]]
+				metaQueue = metaQueue + [""]
+			else:
+				metaQueue = metaQueue + [entry]
+			tracker = tracker + 1
+	numAtoms = len(Atoms)
+	orgFile.close()
+	path = path[:len(path)-4]
+
 	print("Computing Global Centroid") 
 	global globalCentroid
 	globalCentroid = [0,0,0]
 	maxCord = 0
-	numAtoms = 0
-	if isPDBFile == True:
-		parser = PDBParser()
-		structure = parser.get_structure(proteinID, directory + ".pdb")
-		orgSize = os.path.getsize(directory + ".pdb")
-	else:
-		parser = MMCIFParser()
-		structure = parser.get_structure(proteinID, directory + ".cif")
-		orgSize = os.path.getsize(directory + ".cif")
-	for atom in structure.get_atoms():
-		cartCords = atom.get_coord()
+	for atom in Atoms:
+		cartCords = atom[0]
 		for j in range(3):
 			globalCentroid[j] = globalCentroid[j] + cartCords[j]
 			if abs(cartCords[j]) > maxCord:
 				maxCord = abs(cartCords[j])
-		numAtoms = numAtoms + 1
 	for i in range(3):
 		globalCentroid[i] = round(globalCentroid[i]/numAtoms,3)
 	maxCord = math.ceil(maxCord*10)
@@ -112,8 +155,8 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 	print("Computing Maximum Global Radius")
 	global maxGlobalR
 	maxGlobalR = 0
-	for atom in structure.get_atoms():
-		cords = cart2sph(translate(atom.get_coord()))
+	for atom in Atoms:
+		cords = cart2sph(translate(atom[0]))
 		if cords[2] > maxGlobalR:
 			maxGlobalR = cords[2]
 	global imageHeight
@@ -123,14 +166,18 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 
 	print("QUEUEING DATA")
 	tracker = 0
+	atomMetaQueue = []
 	queue = [[radius] for radius in range(maxGlobalR+1)]
-	for atom in structure.get_atoms():
+	global maxBits
+	maxBits = round(3600*bytesPerTenthDegree*8)
+	for atom in Atoms:
 		if (tracker + 1) % notificationFrequency == 0:
 			print("Queing Data for Atom " + str(tracker + 1) + " of " + str(numAtoms))
-		cartCords = atom.get_coord()
+		cartCords = atom[0]
 		for i in range(3):
 			cartCords[i] = round(cartCords[i],3)
 		cords = cart2plan(cartCords)
+		atomMetaQueue = atomMetaQueue + [[(cords[0]*maxBits + cords[1])*1800 + cords[2], atom[1]]]
 		queue[cords[0]] = queue[cords[0]] + [[cords[1], toBits(cords[2])]]
 		tracker = tracker + 1
 
@@ -140,12 +187,25 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 		if len(radius) > 1:
 			filteredQueue = filteredQueue + [radius]
 	queue = filteredQueue
+	
+	print("FINISH SAVING METADATA")
+
+	print("Sorting Metadata to enable Decompression")
+	atomMetaQueue.sort(key = key0)
+
+	print("Finish Writing and Saving Metadata")
+	j = 0
+	for i in range(len(metaQueue)):
+		if metaQueue[i] == "":
+			metaQueue[i] = atomMetaQueue[j][1]
+			j = j + 1
+	metaFile = open(path + "_meta.txt", "w")
+	metaFile.writelines(metaQueue)
+	metaFile.close()
 
 	print("MAPPING AND ENCODING DATA")
 	Images = []
 	occupiedImageSpace = []
-	global maxBits
-	maxBits = round(3600*bytesPerTenthDegree*8)
 	croppingParameters = []
 	while len(queue) > 0:
 		Images = Images + [[[0 for row in range(imageHeight)] for col in range(imageWidth)]]
@@ -249,10 +309,11 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 		for i in range(len(image)):
 			for j in range(len(image[0])):
 				pixels[i,j] = image[i][j]
-		newImageObject.save(directory + "_img_" + str(k + 1) + ".png", optimize = True)
-		ImageInvert = ImageOps.invert(newImageObject) #invert and increase contrast on image for easier viewing
-		ImageInvertContrasted = ImageEnhance.Contrast(ImageInvert).enhance(5)
-		ImageInvertContrasted.save(directory + "_img_" + str(k + 1) + "_forViewing.png", optimize = True)
+		newImageObject.save(path + "_img_" + str(k + 1) + ".png", optimize = True)
+		if constructViewableImage == True:
+			ImageInvert = ImageOps.invert(newImageObject) #invert and increase contrast on image for easier viewing
+			ImageInvertContrasted = ImageEnhance.Contrast(ImageInvert).enhance(5)
+			ImageInvertContrasted.save(path + "_img_" + str(k + 1) + "_forViewing.png", optimize = True)
 		k = k + 1
 
 	print("CONSTRUCTING PARAMETER FILE")
@@ -263,7 +324,7 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 		parameters = parameters + [math.trunc(round(component*1000))]
 	tracker = 0
 	parameterBits = ""
-	parameterFile = open(directory + '_parameters.bin','wb')
+	parameterFile = open(path + '_parameters.bin','wb')
 	for parameter in parameters: #variably pack parameters
 		print("Writing Parameter " + str(tracker + 1) + " of " + str(len(parameters)) + " to Binary File")
 		if parameter < 0:
@@ -289,6 +350,13 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 
 	endTime = time.time() #stop tracking compression time
 	if returnStatistics == True:
+		print("COMPUTING COMPRESSION SAVINGS")
+		compressedSize = os.path.getsize(path + "_meta.txt")
+		compressedSize = compressedSize + os.path.getsize(path + "_parameters.bin")
+		for i in range(len(Images)):
+			compressedSize = compressedSize + os.path.getsize(path + "_img_" + str(i + 1) + ".png")
+		savings = round(100 - (100*compressedSize)/orgSize,1)
+
 		print("COMPUTING COMPRESSION TIME")
 		compressionTime = endTime - startTime
 
@@ -300,4 +368,4 @@ def PICcompress(proteinID, directory, isPDBFile, epsilon = 0.25, returnStatistic
 			occupiedImageSpace[i] = round(occupiedImageSpace[i]/(imageWidth*imageHeight*8)*100,1)
 			i = i + 1
 
-		return [compressionTime, occupiedImageSpace]
+		return [savings, compressionTime, occupiedImageSpace]

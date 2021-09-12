@@ -2,14 +2,11 @@
 # By: Luke Staniscia
 
 #import used libraries/packages
-from Bio.PDB import *
 import math
-import sys
 from PIL import Image, ImageOps, ImageEnhance
 import gzip
 import shutil
 import os
-import time
 
 def cart2sph(cord, precision = 1):
 	x = cord[0]
@@ -42,10 +39,6 @@ def toBits(x):
 	binX = binX + newBin
 	return binX
 
-def keyy(x):
-	maxBits = round(3600*bytesPerTenthDegree*8)
-	return (x[0]*maxBits + x[1])*1800 + int(x[2][2:],2)
-
 def reverseTextLine(s):
 	i = 0
 	floats = []
@@ -58,15 +51,24 @@ def reverseTextLine(s):
 		i = i + 1
 	return floats
 
-def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionStatistics = [], decompressionStatistics = [], notificationFrequency = 500):
+def PICstatistics(path, epsilon = 0.25, compressionStatistics = [], decompressionStatistics = [], notificationFrequency = 500):
 
-	print("##########$$$$$$$$$$########## COMPUTING STATISTICS ON THE COMPRESSION/DECOMPRESSION OF " + proteinID + " ##########$$$$$$$$$$##########")
+	filename = ""
+	i = len(path) - 1
+	while path[i] != "/" and i > -1:
+		filename = path[i] + filename
+		i = i - 1
+	filename = filename[:len(filename)-4]
+	filenameExtension = path[len(path)-4:]
+	path = path[:len(path)-4]
+
+	print("##########$$$$$$$$$$########## COMPUTING STATISTICS ON THE COMPRESSION/DECOMPRESSION OF " + filename + " ##########$$$$$$$$$$##########")
 
 	global bytesPerTenthDegree
 	bytesPerTenthDegree = epsilon
 
 	print("READING PARAMETER FILE")
-	parameterFile = open(directory + "_parameters.bin", "rb")
+	parameterFile = open(path + "_parameters.bin", "rb")
 	parameterBitsRead = ""
 	byte = parameterFile.read(1)
 	while byte:
@@ -111,31 +113,50 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 
 	print("READING PROTEIN FILES")
 	tracker = 0
-	maxCord = 0
-	numAtoms = 0
-	if isPDBFile == True:
-		parser = PDBParser()
-		structure = parser.get_structure(proteinID, directory + ".pdb")
-		orgSize = os.path.getsize(directory + ".pdb")
+	orgFile = open(path + filenameExtension, "r")
+	orgSize = os.path.getsize(path + filenameExtension)
+	Atoms = []
+	if filenameExtension == ".pdb":
+		for entry in orgFile:
+			if (tracker + 1) % notificationFrequency == 0:
+				print("Reading Line #" + str(tracker + 1))
+			if entry[:4] == "ATOM" or entry[:6] == "HETATM":
+				Atoms = Atoms + [[float(entry[30:38]), float(entry[38:46]), float(entry[46:54])]]
+			tracker = tracker + 1
 	else:
-		parser = MMCIFParser()
-		structure = parser.get_structure(proteinID, directory + ".cif")
-		orgSize = os.path.getsize(directory + ".cif")
-	for atom in structure.get_atoms():
-		if (tracker + 1) % notificationFrequency == 0:
-			print("Reading Atom " + str(tracker + 1))
-		cartCords = atom.get_coord()
+		for entry in orgFile:
+			if (tracker + 1) % notificationFrequency == 0:
+				print("Reading Line #" + str(tracker + 1))
+			if entry[:4] == "ATOM" or entry[:6] == "HETATM":
+				tokens = entry.split(" ")
+				previousToken = ""
+				adjustedTokens = []
+				for token in tokens:
+					if token == "":
+						previousToken = previousToken + " "
+					else:
+						adjustedTokens = adjustedTokens + [previousToken]
+						previousToken = token
+				tokens = adjustedTokens[1:] + [previousToken]
+				cartCords = []
+				for i in range(3):
+					cartCords = cartCords + [float(tokens[i + 10])]
+				Atoms = Atoms + [cartCords]
+			tracker = tracker + 1
+	numAtoms = len(Atoms)
+
+	print("Computing maxCord")
+	maxCord = 0
+	for cartCords in Atoms:
 		for j in range(3):
 			if abs(cartCords[j]) > maxCord:
 				maxCord = abs(cartCords[j])
-		numAtoms = numAtoms + 1
-		tracker = tracker + 1 
 	maxCord = math.ceil(maxCord*10)
 
 	print("CONSTRUCTING ORIGINAL COORDINATES AND WRITING BINARY FILE")
 
 	print("Initalizing Binary File")
-	binFile = open(directory + '_bin.bin','wb')
+	binFile = open(path + '_bin.bin','wb')
 	binFileBits = ""
 	newBits = bin(maxCord)[2:] #variably packing maxCord so the binary file can be decoded
 	while len(newBits) % 7 != 0:
@@ -147,10 +168,9 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 
 	tracker = 0
 	toTextQueue = []
-	for atom in structure.get_atoms():
+	for cartCords in Atoms:
 		if (tracker + 1) % notificationFrequency == 0:
 			print("Queueing and Writing Binary Coordinates for Atom " + str(tracker + 1) + " of " + str(numAtoms))
-		cartCords = atom.get_coord()
 		for i in range(3):
 			cartCords[i] = round(cartCords[i],3)
 		for j in range(3):
@@ -189,12 +209,10 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 	binFileByteArray = bytearray(Bytes)
 	binFile.write(binFileByteArray)
 	binFile.close()
-
-	print("CONSTRUCING TEXT FILE")
-	toTextQueue.sort(key = keyy) #sort queue so data points are in the same order as how written in the dcompressed file
 	
+	print("Writing Coordinates-Only Text File")
 	tracker = 0
-	textFile = open(directory + '_txt.txt','w+')
+	textFile = open(path+ '_txt.txt','w+')
 	for data in toTextQueue:
 		if (tracker + 1) % notificationFrequency == 0:
 			print("Writing Data Point " + str(tracker + 1) + " of " + str(len(toTextQueue)) + " to Text File")
@@ -203,18 +221,52 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 	textFile.close()
 
 	print("COMPARING DECOMPRESSED FILE")
+
+	print("Reading Decomprssed File")
 	tracker = 0
-	decompressedFile = open(directory + "_decompressed_txt.txt", "r")
+	decompressedFile = open(path + "_decompressed" + filenameExtension, "r")
+	decompressedAtoms = []
+	if filenameExtension == ".pdb":
+		for entry in decompressedFile:
+			if (tracker + 1) % notificationFrequency == 0:
+					print("Reading Line #" + str(tracker + 1))
+			if entry[:4] == "ATOM" or entry[:6] == "HETATM":
+				decompressedAtoms = decompressedAtoms + [[float(entry[30:38]), float(entry[38:46]), float(entry[46:54])]]
+			tracker = tracker + 1
+	else:
+		for entry in decompressedFile:
+			if (tracker + 1) % notificationFrequency == 0:
+					print("Reading Line #" + str(tracker + 1))
+			if entry[:4] == "ATOM" or entry[:6] == "HETATM":
+				tokens = entry.split(" ")
+				previousToken = ""
+				adjustedTokens = []
+				for token in tokens:
+					if token == "":
+						previousToken = previousToken + " "
+					else:
+						adjustedTokens = adjustedTokens + [previousToken]
+						previousToken = token
+				tokens = adjustedTokens[1:] + [previousToken]
+				cartCords = []
+				for i in range(3):
+					cartCords = cartCords + [float(tokens[i + 10])]
+				decompressedAtoms = decompressedAtoms + [cartCords]
+			tracker = tracker + 1
+
+	print("Comparing Original and Decompressed Atoms")
+	tracker = 0
+	i = 0
 	numberMismatches = 0
 	for data in toTextQueue:
 		if (tracker + 1) % notificationFrequency == 0:
 			print("Decompressing Data Point " + str(tracker + 1) + " of " + str(len(toTextQueue)))
-		decompressedLine = decompressedFile.readline()
 		originalCords = data[3]
-		decompressedCords = reverseTextLine(decompressedLine)
+		decompressedCords = decompressedAtoms[i]
+		i = i + 1
 		euclideanDistance = 0
-		for i in range(3):
-			euclideanDistance = euclideanDistance + (originalCords[i] - decompressedCords[i])**2
+		for j in range(3):
+			euclideanDistance = euclideanDistance + (originalCords[j] - decompressedCords[j])**2
 		euclideanDistance = math.sqrt(euclideanDistance)
 		if euclideanDistance > 0.2*math.sqrt(3):
 			print("MISMATCH!")
@@ -223,23 +275,25 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 			numberMismatches = numberMismatches + 1
 		tracker = tracker + 1
 	decompressedFile.close()
-	if numberMismatches == 0:
+	if numberMismatches == 0 and len(toTextQueue) == len(decompressedAtoms):
 		print("DECOMPRESSION SUCESSFUL")
 	else:
 		print("DECOMPRESSION NOT SUCESSFUL; Number of Mismatches: " + str(numberMismatches))
 
 	print("COMPRESSING BINARY FILE AND RETREVING FILE SIZES")
 	print("Retreving Text, Binary, and PNG File Sizes")
-	textSize = os.path.getsize(directory + '_txt.txt')
-	binSize = os.path.getsize(directory + '_bin.bin')
+	textSize = os.path.getsize(path + '_txt.txt')
+	binSize = os.path.getsize(path + '_bin.bin')
 	pngSize = 0
 	for i in range(numImages):
-		pngSize = pngSize + os.path.getsize(directory + "_img_" + str(i + 1) + ".png")
-	pngSize = pngSize + os.path.getsize(directory + "_parameters.bin")
+		pngSize = pngSize + os.path.getsize(path + "_img_" + str(i + 1) + ".png")
+	pngSize = pngSize + os.path.getsize(path + "_parameters.bin")
 	print("Compressing Binary File with gZip")
-	with open(directory + '_bin.bin', 'rb') as f_in, gzip.open(directory + '_bin.bin.gz', 'wb') as f_out:
+	with open(path + '_bin.bin', 'rb') as f_in, gzip.open(path+ '_bin.bin.gz', 'wb') as f_out:
 	    shutil.copyfileobj(f_in, f_out)
-	gZipSize = os.path.getsize(directory + '_bin.bin.gz')
+	gZipSize = os.path.getsize(path + '_bin.bin.gz')
+	os.remove(path + "_bin.bin")
+	os.remove(path + "_bin.bin.gz")
 
 	print("COMPUTING COMPRESSION RATIOS")
 	gZipCR = round(textSize/gZipSize,3)
@@ -256,7 +310,7 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 		decompressionTimeSec = round(decompressionStatistics[0] % 60,1)
 
 	print("###### COMPRESSION STATISTICS START #####")
-	print("Protein ID: " + proteinID)
+	print("Compressed File: " + filename)
 	print("Atom Count: " + str(numAtoms))
 	print("###")
 	print("Original File Size: " + str(round(orgSize/1000,1)) + " KB")
@@ -298,7 +352,7 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 		gZipCRString = "\\textbf{" + str(gZipCR) + "}"
 		pngSizeString = str(round(pngSize/1000,1))
 		pngCRString = str(pngCR)
-	latex = proteinID + " & " + str(numAtoms) + " & " + str(round(orgSize/1000,1)) + " & " + str(round(textSize/1000,1)) + " & " + str(round(binSize/1000,1)) +  " & " + gZipSizeString + " & " + gZipCRString + " & " + pngSizeString + " & " + pngCRString
+	latex = filename + " & " + str(numAtoms) + " & " + str(round(orgSize/1000,1)) + " & " + str(round(textSize/1000,1)) + " & " + str(round(binSize/1000,1)) +  " & " + gZipSizeString + " & " + gZipCRString + " & " + pngSizeString + " & " + pngCRString
 	if len(compressionStatistics) > 0:
 		latex = latex +  " & " + str(compressionTimeMin) + ":" + str(compressionTimeSec) + " & " + str(numImages) + " & " + str(compressionStatistics[1]) 
 	else: 
@@ -307,5 +361,8 @@ def PICstatistics(proteinID, directory, isPDBFile, epsilon = 0.25, compressionSt
 		latex = latex + " & " + str(decompressionTimeMin) + ":" + str(decompressionTimeSec) + " \\\\"
 	else: 
 		latex = latex + " \\\\"
+
+	print("LATEX Output")
 	print(latex)
+
 	return [latex, [numAtoms, textSize, gZipSize, pngSize]]
