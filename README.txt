@@ -4,7 +4,7 @@ NAME
 PIC Compression and Decompression Algorithm
 
 DESCRIPTION
-Compression and decompression algorithm for 3D Cartesian coordinates contained in PDB and mmCIF files. See the article "PIC: an image-centric compression algorithm for structural protein data" for further details. 
+Compression and decompression algorithm for 3D Cartesian coordinates contained in PDB and mmCIF files. See the article "Image-centric compression of protein structures improves space savings" for further details. 
 
 VISUALS
 See the aforementioned article for sample outputs from the compression algorithm. 
@@ -46,9 +46,6 @@ Please email luke.staniscia@mail.utoronto.ca if you have any questions or commen
 
 AUTHORS AND ACKNOWLEDGMENT
 Code written by Luke Staniscia. Luke would like to thank Prof. Yun William Yu for his guidance throughout the course of this project, as well as Jim Shaw, Ziye Tao, and Alex Leighton for their thought-provoking questions that inspired parts of the aforementioned article. 
-
-LICENSE
-Freely available to non-commercial users.
 
 PROJECT STATUS
 Complete.
