@@ -1,3 +1,5 @@
+#!python
+#cython: language_level=3
 # PIC Decompressor
 # By: Luke Staniscia
 

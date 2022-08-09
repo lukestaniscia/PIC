@@ -1,3 +1,5 @@
+#!python
+#cython: language_level=3
 # PIC Compressor
 # By: Luke Staniscia
 

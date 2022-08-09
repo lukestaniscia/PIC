@@ -1,6 +1,7 @@
 # PIC Algorithm Command Line Executor/Wrapper
 # By: Luke Staniscia
 
+
 import sys
 import os
 from PICcompression import *
