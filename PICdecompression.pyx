@@ -186,14 +186,16 @@ def PICdecompress(path, epsilon = 0.25, returnStatistics = False, notificationFr
 	print("Recombining Metadata and Coordinates")
 	metaFile = open(path + "_meta.txt", "r")
 	firstMetaLine = metaFile.readline()
+	metaFile.close()
 	if firstMetaLine[:5] == "data_":
 		filenameExtension = ".cif"
 	else:
 		filenameExtension = ".pdb" 
 	tracker = 0
 	i = 0
-	writeQueue = [firstMetaLine]
+	writeQueue = []
 	atomQueue = []
+	metaFile = open(path + "_meta.txt", "r")
 	if filenameExtension == ".pdb":
 		for entry in metaFile:
 			if (tracker + 1) % notificationFrequency == 0:
@@ -248,6 +250,7 @@ def PICdecompress(path, epsilon = 0.25, returnStatistics = False, notificationFr
 				atomQueue = atomQueue + [[int(tokens[1]), s]]
 			tracker = tracker + 1
 	atomQueue.sort(key = key0)
+	metaFile.close()
 
 	print("Writing Decompressed File")
 	tracker = 0
