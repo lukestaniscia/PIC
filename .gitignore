@@ -8,3 +8,8 @@ pngCRvsgZipCR.png
 build/
 *.log
 __pycache__
+*.pyc
+*.pyd
+*.pyo
+*.so
+*.o
