@@ -1,0 +1,10 @@
+PICcompression.c
+PICcompression.cpython-38-x86_64-linux-gnu.so
+PICdecompression.c
+PICdecompression.cpython-38-x86_64-linux-gnu.so
+Test Proteins/
+CRvsnumAtoms.png
+pngCRvsgZipCR.png
+build/
+*.log
+__pycache__
