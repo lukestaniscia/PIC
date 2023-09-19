@@ -14,7 +14,7 @@ After cloning the repository, run "sh ./setup.sh" to compile PICcompression.pyx 
 Place the PIC.py, PICcompression.*, PICdecompression.*, and PICstatistics.py files in your working directory.
 
 REQUIREMENTS
-The aforementioned files that make up the PIC algorithm are written in Python V3. This implementation makes use of the Python packages math, PIL.{Image, ImageOps, ImageEnhance}, os, time, sys, gzip, shutil, urllib.request, ssl, matplotlib.pyplot, and numpy. Python V3 and the aforementioned libraries must be installed on your system before using the PIC algorithm.
+The aforementioned files that make up the PIC algorithm are written in Python V3. This implementation makes use of the Python packages math, Pillow.{Image, ImageOps, ImageEnhance}, os, time, sys, gzip, shutil, urllib.request, ssl, matplotlib.pyplot, and numpy. Python V3 and the aforementioned libraries must be installed on your system before using the PIC algorithm.
 
 Additionally, we recommend and by default assume you have Cython installed, and that "python3" invokes the Python interpreter.
 If you do not have Cython installed, you can still run PIC by renaming all the *.pyx files to *.py. However, this will be substantially slower.
